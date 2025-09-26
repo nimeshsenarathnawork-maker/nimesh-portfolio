@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Nimesh — Modern Chatbot (Streaming)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#94a3b8;--accent:#7c3aed;--glass:rgba(255,255,255,0.03);--success:#22c55e}
+    [data-theme="light"]{--bg:#f6f7fb;--card:#fff;--muted:#475569;--accent:#4f46e5;--glass:rgba(0,0,0,0.03);--success:#16a34a}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,var(--bg),#071026);color:#e6eef8}
+    .app{max-width:980px;margin:28px auto;padding:20px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);box-shadow:0 8px 40px rgba(2,6,23,0.6)}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between}
+    .brand{display:flex;gap:12px;align-items:center}
+    .logo{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#06b6d4);display:flex;align-items:center;justify-content:center;font-weight:800}
+    .title{font-weight:700;font-size:1.15rem}
+    .controls{display:flex;gap:8px;align-items:center}
+    select,input.api-key{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--card);color:inherit;min-width:220px}
+    .small{font-size:0.85rem;color:var(--muted)}
+    .theme-toggle{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--glass);cursor:pointer}
+
+    main{display:grid;grid-template-columns:320px 1fr;gap:18px;margin-top:18px}
+    .sidebar{background:var(--card);padding:14px;border-radius:12px;min-height:520px}
+    .history{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+    .conv-item{padding:8px;border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);cursor:pointer}
+    .conv-item strong{display:block}
+    .actions{display:flex;gap:8px;margin-top:12px}
+    button.btn{padding:8px 10px;border-radius:10px;border:none;cursor:pointer;background:var(--accent);color:#fff}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+
+    .chat{background:var(--card);padding:14px;border-radius:12px;min-height:520px;display:flex;flex-direction:column}
+    .messages{flex:1;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:12px}
+    .msg{max-width:78%;padding:12px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);box-shadow:0 6px 18px rgba(2,6,23,0.5)}
+    .msg.user{align-self:flex-end;background:linear-gradient(180deg,rgba(124,58,237,0.12),rgba(124,58,237,0.06))}
+    .msg.assistant{align-self:flex-start}
+    .meta{font-size:0.78rem;color:var(--muted);margin-bottom:6px}
+
+    .composer{display:flex;gap:8px;margin-top:12px}
+    textarea{flex:1;min-height:60px;max-height:220px;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    .send{padding:12px 14px;border-radius:10px;border:none;background:var(--success);color:#082018;cursor:pointer}
+
+    .muted-note{font-size:0.82rem;color:var(--muted);margin-top:8px}
+    footer{margin-top:10px;text-align:center;font-size:0.82rem;color:var(--muted)}
+
+    @media(max-width:880px){main{grid-template-columns:1fr} .sidebar{order:2}}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="brand">
+        <div class="logo">NS</div>
+        <div>
+          <div class="title">Nimesh — Modern Chatbot</div>
+          <div class="small">Multi-provider • conversation memory • streaming</div>
+        </div>
+      </div>
+      <div class="controls">
+        <select id="provider" title="Select provider">
+          <option value="openai">OpenAI</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="huggingface">Hugging Face</option>
+          <option value="custom">Custom (proxy)</option>
+        </select>
+        <select id="modelSelect" title="Choose model"></select>
+        <input id="apiKey" class="api-key" placeholder="Paste API key or leave empty (proxy can store keys)" />
+        <button class="theme-toggle" id="themeBtn">Toggle Theme</button>
+      </div>
+    </header>
+
+    <main>
+      <aside class="sidebar">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><strong>Conversations</strong><div class="small">Stored in browser (localStorage)</div></div>
+          <div><button class="ghost" id="newConv">New</button></div>
+        </div>
+        <div class="history" id="history"></div>
+        <div class="actions">
+          <button class="btn" id="export">Export JSON</button>
+          <button class="ghost" id="clearAll">Clear All</button>
+        </div>
+        <div class="muted-note">Tip: Use the included Node.js proxy (server.js) to avoid CORS & enable streaming. Place your API key in the proxy env or paste it here for direct requests.</div>
+      </aside>
+
+      <section class="chat">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><strong id="convTitle">Conversation</strong><div class="small" id="convMeta">(local)</div></div>
+          <div class="small">Provider: <span id="currentProvider">OpenAI</span></div>
+        </div>
+
+        <div class="messages" id="messages" aria-live="polite"></div>
+
+        <div class="composer">
+          <textarea id="input" placeholder="Write your message... (Shift+Enter = newline)"></textarea>
+          <button class="send" id="sendBtn">Send</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:10px">
+          <div class="small">Stream: token-by-token (proxy required for some providers)</div>
+          <div><button class="ghost" id="saveBtn">Save Conversation</button></div>
+        </div>
+      </section>
+    </main>
+
+    <footer>Built for you. Keep API keys secret. Local memory only stored in your browser.</footer>
+  </div>
+
+  <script>
+    // --- App config ---
+    const STORAGE_KEY = 'ns_chat_history_v2';
+    const historyEl = document.getElementById('history');
+    const messagesEl = document.getElementById('messages');
+    const providerEl = document.getElementById('provider');
+    const apiKeyEl = document.getElementById('apiKey');
+    const inputEl = document.getElementById('input');
+    const sendBtn = document.getElementById('sendBtn');
+    const modelSelect = document.getElementById('modelSelect');
+
+    // Model lists per provider (nice picker)
+    const MODELS = {
+      openai: [
+        {id:'gpt-4o-mini', label:'gpt-4o-mini'},
+        {id:'gpt-4o', label:'gpt-4o'},
+        {id:'gpt-4o-mini-2024-12-17', label:'gpt-4o-mini (legacy)'},
+        {id:'gpt-3.5-turbo', label:'gpt-3.5-turbo'}
+      ],
+      openrouter: [
+        {id:'o4-mini', label:'o4-mini (OpenRouter)'}
+      ],
+      huggingface: [
+        {id:'gpt2', label:'gpt2 (small)'},
+        {id:'bigscience/bloom', label:'bigscience/bloom'},
+        {id:'meta-llama/Llama-2-7b-chat', label:'llama-2-7b-chat (HF)'}
+      ],
+      custom: [ {id:'custom', label:'Custom endpoint (enter URL when sending)'} ]
+    };
+
+    // State
+    let convs = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    let current = convs[0] || { id: Date.now().toString(), title: 'New conversation', messages: [] };
+
+    // Theme
+    const themeBtn = document.getElementById('themeBtn');
+    const root = document.documentElement;
+    themeBtn.onclick = () => {
+      if (root.hasAttribute('data-theme')) { root.removeAttribute('data-theme'); localStorage.removeItem('ns_theme'); }
+      else { root.setAttribute('data-theme','light'); localStorage.setItem('ns_theme','light'); }
+    }
+    if (localStorage.getItem('ns_theme') === 'light') root.setAttribute('data-theme','light');
+
+    // Helpers
+    function escapeHtml(s){ if(!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br/>'); }
+    function saveConvs(){ const idx = convs.findIndex(c=>c.id===current.id); if(idx===-1) convs.unshift(current); else convs[idx]=current; localStorage.setItem(STORAGE_KEY, JSON.stringify(convs)); renderHistory(); }
+
+    function renderHistory(){ historyEl.innerHTML=''; convs.forEach(c=>{ const d=document.createElement('div'); d.className='conv-item'; d.innerHTML=`<strong>${escapeHtml(c.title)}</strong><div class="small">${c.messages.length} messages</div>`; d.onclick=()=>{ current=c; renderConversation(); }; historyEl.appendChild(d); }); }
+    function renderConversation(){ document.getElementById('convTitle').textContent = current.title || 'Conversation'; document.getElementById('currentProvider').textContent = providerEl.options[providerEl.selectedIndex].text; messagesEl.innerHTML=''; current.messages.forEach(m=>{ const el=document.createElement('div'); el.className='msg '+(m.role==='user'?'user':'assistant'); el.innerHTML=`<div class="meta">${m.role}</div><div>${escapeHtml(m.content)}</div>`; messagesEl.appendChild(el); }); messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+    // Init model picker
+    function populateModels(provider){ modelSelect.innerHTML=''; const list = MODELS[provider]||[{id:'default',label:'default'}]; list.forEach(m=>{ const o=document.createElement('option'); o.value=m.id; o.textContent=m.label; modelSelect.appendChild(o); }); }
+    providerEl.addEventListener('change', ()=>{ populateModels(providerEl.value); document.getElementById('currentProvider').textContent = providerEl.options[providerEl.selectedIndex].text; });
+    populateModels(providerEl.value);
+
+    // New / export / clear
+    document.getElementById('newConv').onclick = ()=>{ current = { id: Date.now().toString(), title: 'Conversation '+(convs.length+1), messages: [] }; renderConversation(); }
+    document.getElementById('clearAll').onclick = ()=>{ if(confirm('Clear all saved conversations?')){ convs=[]; current={ id: Date.now().toString(), title:'New', messages:[] }; localStorage.removeItem(STORAGE_KEY); renderConversation(); renderHistory(); } }
+    document.getElementById('export').onclick = ()=>{ const data = JSON.stringify(convs, null, 2); const blob = new Blob([data], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='conversations.json'; a.click(); URL.revokeObjectURL(url); }
+    document.getElementById('saveBtn').onclick = ()=>{ saveConvs(); alert('Saved locally'); }
+
+    // Sending + streaming
+    sendBtn.onclick = sendMessage;
+    inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
+
+    let controller = null; // abort controller for streaming
+
+    async function sendMessage(){ const text = inputEl.value.trim(); if(!text) return;
+      const userMsg = { role:'user', content:text, time:Date.now() };
+      current.messages.push(userMsg); renderConversation(); inputEl.value='';
+      // placeholder assistant message
+      const placeholder = { role:'assistant', content:'', time:Date.now(), streaming:true };
+      current.messages.push(placeholder); renderConversation(); saveConvs();
+
+      try{
+        const provider = providerEl.value;
+        const apiKey = apiKeyEl.value.trim();
+        const model = modelSelect.value;
+        // send to our proxy /api/chat which handles CORS and streaming
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, apiKey, model, messages: current.messages.map(m=>({role:m.role,content:m.content})) })
+        });
+
+        if(!resp.ok){ const t = await resp.text(); throw new Error('Server error: '+t); }
+
+        // Read streaming body
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let done = false;
+        let acc = '';
+        while(!done){ const { value, done: rd } = await reader.read(); if(rd) { done = true; break; } const chunk = dec.decode(value, {stream:true}); acc += chunk; // append
+          // update last assistant message content progressively
+          current.messages[current.messages.length-1].content += chunk;
+          renderConversation(); messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        // finalize
+        current.messages[current.messages.length-1].streaming = false;
+      }catch(err){ console.error(err); current.messages[current.messages.length-1].content = 'Error: '+(err.message||err); }
+      renderConversation(); saveConvs();
+    }
+
+    // Init
+    function init(){ if(!convs.length) convs=[current]; else current=convs[0]; renderHistory(); renderConversation(); }
+    init();
+  </script>
+</body>
+</html>
